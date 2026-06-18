@@ -15,6 +15,10 @@ let lastVideoTime = -1;
 let lastDingBand = 0;
 let smoothedBadness = 0;
 let lastFrameAt = performance.now();
+let lastPoseAt = 0;
+let lastGoodScores = { neck: 0, slouch: 0, badness: 0 };
+let consecutiveMisses = 0;
+let loopStarted = false;
 
 const won = new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 });
 const clamp = (n, min = 0, max = 1) => Math.min(max, Math.max(min, n));
@@ -112,9 +116,11 @@ function estimatePosture(landmarks) {
   const leftHip = landmarks[L.LEFT_HIP];
   const rightHip = landmarks[L.RIGHT_HIP];
 
-  const ear = avgPoint(leftEar, rightEar);
-  const shoulder = avgPoint(leftShoulder, rightShoulder);
-  const hip = avgPoint(leftHip, rightHip);
+  // 웹캠 상반신만 잡힐 때 한쪽 귀/엉덩이 landmark가 자주 튄다.
+  // visible point만 평균내고, 엉덩이가 안 보이면 어깨 기준 fallback을 써서 감지가 끊기지 않게 한다.
+  const ear = avgVisiblePoint(leftEar, rightEar) ?? avgPoint(leftEar, rightEar);
+  const shoulder = avgVisiblePoint(leftShoulder, rightShoulder) ?? avgPoint(leftShoulder, rightShoulder);
+  const hip = avgVisiblePoint(leftHip, rightHip);
   const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x) || 0.22;
 
   // Mirrored camera makes left/right irrelevant; absolute horizontal head offset catches forward/side protrusion.
@@ -122,10 +128,10 @@ function estimatePosture(landmarks) {
   const headDrop = (ear.y - shoulder.y + 0.18) / 0.22; // ear should sit clearly above shoulder.
   const neck = clamp((headOffset - 0.16) / 0.34 * 0.75 + clamp(headDrop, 0, 1) * 0.35);
 
-  const torsoDx = Math.abs(shoulder.x - hip.x);
-  const torsoDy = Math.max(0.001, hip.y - shoulder.y);
+  const torsoDx = hip ? Math.abs(shoulder.x - hip.x) : headOffset * 0.55;
+  const torsoDy = hip ? Math.max(0.001, hip.y - shoulder.y) : 0.28;
   const torsoLean = torsoDx / torsoDy;
-  const compressedTorso = clamp((0.33 - torsoDy) / 0.18);
+  const compressedTorso = hip ? clamp((0.33 - torsoDy) / 0.18) : clamp((headDrop - 0.18) / 0.6) * 0.55;
   const shoulderTilt = Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth;
   const slouch = clamp((torsoLean - 0.08) / 0.32 * 0.45 + compressedTorso * 0.42 + clamp((shoulderTilt - 0.05) / 0.28) * 0.25);
 
@@ -136,6 +142,20 @@ function avgPoint(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: ((a.z ?? 0) + (b.z ?? 0)) / 2 };
 }
 
+function visibleEnough(point) {
+  return point && (point.visibility == null || point.visibility > 0.28);
+}
+
+function avgVisiblePoint(a, b) {
+  const points = [a, b].filter(visibleEnough);
+  if (!points.length) return null;
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+    z: points.reduce((sum, point) => sum + (point.z ?? 0), 0) / points.length,
+  };
+}
+
 async function initPose() {
   if (poseLandmarker) return;
   els.postureLabel.textContent = 'AI 자세 모델 로딩 중';
@@ -143,13 +163,15 @@ async function initPose() {
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
-      delegate: 'GPU',
+      // Chrome/Windows 일부 환경에서 GPU delegate가 몇 프레임 뒤 멈칫하는 경우가 있어
+      // 바이럴 데모는 CPU가 더 안정적이다. 속도보다 감지 지속성을 우선한다.
+      delegate: 'CPU',
     },
     runningMode: 'VIDEO',
     numPoses: 1,
-    minPoseDetectionConfidence: 0.45,
-    minPosePresenceConfidence: 0.45,
-    minTrackingConfidence: 0.45,
+    minPoseDetectionConfidence: 0.25,
+    minPosePresenceConfidence: 0.25,
+    minTrackingConfidence: 0.25,
   });
   drawingUtils = new DrawingUtils(els.canvas.getContext('2d'));
 }
@@ -167,7 +189,10 @@ async function startCamera() {
     await els.video.play();
     ensureAudio();
     els.startBtn.textContent = '실시간 감지 중';
-    requestAnimationFrame(loop);
+    if (!loopStarted) {
+      loopStarted = true;
+      requestAnimationFrame(loop);
+    }
   } catch (err) {
     console.error(err);
     els.startBtn.disabled = false;
@@ -185,17 +210,25 @@ function loop() {
 
   if (els.video.currentTime !== lastVideoTime && poseLandmarker) {
     lastVideoTime = els.video.currentTime;
-    const result = poseLandmarker.detectForVideo(els.video, now);
-    drawAndScore(result);
+    try {
+      const result = poseLandmarker.detectForVideo(els.video, now);
+      drawAndScore(result, now);
+    } catch (err) {
+      console.warn('pose detection skipped one frame', err);
+    }
   }
   requestAnimationFrame(loop);
 }
 
-function drawAndScore(result) {
+function drawAndScore(result, now) {
   const canvas = els.canvas;
   const rect = els.stage.getBoundingClientRect();
-  canvas.width = Math.round(rect.width * devicePixelRatio);
-  canvas.height = Math.round(rect.height * devicePixelRatio);
+  const nextWidth = Math.round(rect.width * devicePixelRatio);
+  const nextHeight = Math.round(rect.height * devicePixelRatio);
+  if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+    canvas.width = nextWidth;
+    canvas.height = nextHeight;
+  }
   const ctx = canvas.getContext('2d');
   ctx.save();
   ctx.scale(canvas.width, canvas.height);
@@ -203,21 +236,33 @@ function drawAndScore(result) {
   ctx.restore();
 
   if (!result.landmarks?.length) {
-    smoothedBadness = lerp(smoothedBadness, 0, 0.08);
-    renderScores(0, 0, smoothedBadness, false);
+    consecutiveMisses += 1;
+    const recentlyHadPose = now - lastPoseAt < 900;
+    if (recentlyHadPose) {
+      // 한두 프레임 포즈가 빠져도 바로 감지를 꺼버리지 말고 마지막 값을 천천히 감쇠.
+      smoothedBadness = lerp(smoothedBadness, lastGoodScores.badness, 0.05);
+      renderScores(lastGoodScores.neck, lastGoodScores.slouch, smoothedBadness, true, true);
+    } else {
+      smoothedBadness = lerp(smoothedBadness, 0, 0.04);
+      renderScores(0, 0, smoothedBadness, false);
+    }
     return;
   }
+
+  consecutiveMisses = 0;
+  lastPoseAt = now;
 
   const landmarks = result.landmarks[0];
   drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, { color: 'rgba(248,214,96,.8)', lineWidth: 3 });
   drawingUtils.drawLandmarks(landmarks, { color: '#ff3b5c', radius: 3 });
 
   const score = estimatePosture(landmarks);
+  lastGoodScores = score;
   smoothedBadness = lerp(smoothedBadness, score.badness, 0.14);
   renderScores(score.neck, score.slouch, smoothedBadness, true);
 }
 
-function renderScores(neck, slouch, level, hasPose) {
+function renderScores(neck, slouch, level, hasPose, isHolding = false) {
   const blur = Math.round(lerp(0, 18, Math.pow(level, 1.25)) * 10) / 10;
   els.fog.style.setProperty('--blur', `${blur}px`);
   els.fog.style.setProperty('--fogA', `${0.05 + level * 0.22}`);
@@ -228,6 +273,9 @@ function renderScores(neck, slouch, level, hasPose) {
   if (!hasPose) {
     els.postureLabel.textContent = '사람을 못 찾음';
     els.postureHint.textContent = '상반신과 얼굴/어깨가 화면 안에 들어오게 해주세요.';
+  } else if (isHolding) {
+    els.postureLabel.textContent = '감지 유지 중';
+    els.postureHint.textContent = `포즈가 ${consecutiveMisses}프레임 흔들려서 마지막 값을 유지합니다.`;
   } else {
     setStatus(level);
   }
