@@ -10,8 +10,8 @@
     "start": "electron .",
     "smoke": "node scripts/smoke.mjs",
     "generate:icon": "python scripts/generate-icon.py",
-    "dist:mac": "electron-builder --mac dmg zip",
-    "dist:dir": "electron-builder --dir"
+    "dist:mac": "electron-builder --mac dmg zip --publish never",
+    "dist:dir": "electron-builder --dir --publish never"
   },
   "devDependencies": {
     "electron": "^42.4.1",
