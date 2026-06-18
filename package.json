@@ -1,0 +1,64 @@
+{
+  "name": "posture-debt-cam",
+  "version": "0.2.0",
+  "description": "A viral macOS webcam app that turns bad posture into a fake disc surgery bill.",
+  "author": "Aussie Pus / Decody",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "node scripts/smoke.mjs",
+    "generate:icon": "python scripts/generate-icon.py",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.aussiepus.posturedebtcam",
+    "productName": "Posture Debt Cam",
+    "copyright": "Copyright © 2026 Aussie Pus / Decody",
+    "icon": "build/icon",
+    "asar": true,
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "electron/**/*",
+      "README.md"
+    ],
+    "mac": {
+      "category": "public.app-category.healthcare-fitness",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Posture Debt Cam uses the camera to estimate posture landmarks locally on your device.",
+        "NSHumanReadableCopyright": "Copyright © 2026 Aussie Pus / Decody. Not a medical device."
+      }
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+  }
+}
