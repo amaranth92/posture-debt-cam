@@ -1,33 +1,25 @@
-﻿# Posture Debt Cam
+﻿# Posture Debt Cam — Packaging & Release Practice
 
-## Objective
-A practical desktop utility project focused on a user-facing workflow for posture/debt feedback tracking.
+## What this repo means to me
+A practical utility project where I can show practical thinking about release flow, packaging, and operational delivery.
 
-## Stack
-- Electron
-- Node.js
-- JavaScript / TypeScript
-- GitHub Actions (macOS artifact generation)
+## Recruiter-focused notes
+- **Case**: Tooling + release pipeline in one repository
+- **Focus**: macOS packaging and CI workflow consistency
+- **Why useful**: demonstrates I keep build/distribution as part of engineering quality, not a final step
 
-## What this repo shows
-- Multi-platform packaging workflow.
-- Structured release asset generation.
-- App build + action-based automation setup.
-
-## Why this matters to hiring teams
-- Demonstrates engineering awareness of release flow and reproducible build/deployment practices.
-- Shows operational thinking: packaging, validation, and distribution path planning.
-
-## Current state
-This repository is organized as a utility project with executable packaging workflows.
+## Quick proof points
+- Electron app structure and packaging scripts
+- GitHub Actions workflow for generated artifacts
+- Clear release-oriented folder and script layout
 
 ## Run
-`ash
+```bash
 git clone https://github.com/amaranth92/posture-debt-cam.git
 cd posture-debt-cam
-npm install   # if dependencies are available in your working branch
+npm install
 npm start
-`
+```
 
-## Links
-- Repository: https://github.com/amaranth92/posture-debt-cam
+## Skills shown
+Electron, Node.js, release automation, CI-driven packaging
